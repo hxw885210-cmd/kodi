@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.douyin" name="抖音" version="1.5.11" provider-name="xiaojiu885210-arch">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="addon.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="zh_CN">在 Kodi 里刷抖音。推荐、直播、搜索排序、Cookie 登录</summary>
+    <summary lang="en_GB">Watch Douyin in Kodi. Cookie login, following, likes, feed and hot search</summary>
+    <description lang="zh_CN">非官方抖音视频插件。用浏览器 Cookie 登录（登录一次会记住），可看推荐、关注动态、我喜欢、热搜和搜索。搜索支持视频、用户与直播，和网页端综合搜索一致。扫码请在抖音网页完成后再把 sessionid 贴进插件。仅供个人学习使用，内容版权归抖音及创作者所有。</description>
+    <description lang="en_GB">Unofficial Douyin add-on. Log in with a browser Cookie to browse following and likes, plus the public feed, search and hot search. For personal use only.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+    <source>https://github.com/xiaojiu885210-arch/kodi</source>
+    <website>https://github.com/xiaojiu885210-arch/kodi</website>
+    <news lang="zh_CN">1.5.11: 搜索按网页端综合搜索补齐：视频+用户+直播，修复有的词搜不出结果。</news>
+    <assets>
+      <icon>resources/media/icon.png</icon>
+      <fanart>resources/media/fanart.png</fanart>
+    </assets>
+    <reuselanguageinvoker>true</reuselanguageinvoker>
+  </extension>
+</addon>
