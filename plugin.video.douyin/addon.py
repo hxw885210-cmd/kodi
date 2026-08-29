@@ -71,6 +71,17 @@ def router():
             params.get("sid") or "",
         )
         return
+    if action == "search_users":
+        from browse import do_search_users
+
+        do_search_users(
+            params.get("q") or "",
+            params.get("sort") or "0",
+            params.get("pub") or "0",
+            params.get("off") or "0",
+            params.get("sid") or "",
+        )
+        return
     if action == "search_input":
         from browse import do_search_input
 

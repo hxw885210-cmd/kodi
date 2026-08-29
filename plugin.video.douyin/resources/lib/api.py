@@ -511,7 +511,7 @@ class DouyinAPI:
             login_err = exc
             videos, users, lives = [], [], []
 
-        if offset == 0:
+        if offset == 0 and not login_err:
             try:
                 extra_users = self._user_search(keyword)
             except DouyinError:
@@ -519,10 +519,10 @@ class DouyinAPI:
             users = _merge_users(users, extra_users)
 
         # 搜到用户就先展示卡片，不要立刻去拉每个人的主页，否则搜索后再进作者会被限流。
-        if not videos and offset == 0 and users and not self.logged_in():
+        if not videos and offset == 0 and users and not self.logged_in() and not login_err:
             videos = self._videos_from_users(users[:2])
 
-        if not videos and offset == 0:
+        if not videos and offset == 0 and not login_err:
             try:
                 videos = self.hot_videos(keyword)
             except DouyinError:
@@ -531,13 +531,13 @@ class DouyinAPI:
                 has_more = len(videos) >= min(self.count, 15)
                 next_offset = len(videos)
 
-        if not videos and offset == 0:
+        if not videos and offset == 0 and not login_err:
             videos = self._search_via_hot_words(keyword)
             if videos:
                 has_more = False
                 next_offset = offset + len(videos)
 
-        if not videos and offset == 0:
+        if not videos and offset == 0 and not login_err:
             videos = self._search_via_suggest(keyword)
             if videos:
                 has_more = False
@@ -558,8 +558,12 @@ class DouyinAPI:
         items.extend(videos)
 
         if not items:
-            if login_err and ("登录" in str(login_err) or "cookie" in str(login_err).lower()):
-                raise DouyinError("搜索需要有效登录 Cookie。请重新登录后再搜，热搜词也可先去热搜榜")
+            if login_err:
+                raise DouyinError(
+                    "搜索被抖音拦住了。请到「已登录」重新贴一次 Cookie，等半分钟再搜"
+                    if self.logged_in()
+                    else "搜索需要登录。把浏览器 Cookie 贴进插件后再搜"
+                )
             return [], False, int(next_offset or 0), str(next_sid or "")
         return items, bool(has_more), int(next_offset or 0), str(next_sid or "")
 
@@ -639,7 +643,7 @@ class DouyinAPI:
             if code in (2483, 2154, 5, 8) or ("登录" in msg):
                 login_err = DouyinError(msg or "搜索需要先登录")
                 last = login_err
-                continue
+                break
             if code not in (0, None):
                 last = DouyinError(msg or ("错误码 %s" % code))
                 continue
@@ -816,6 +820,9 @@ class DouyinAPI:
                 if len(out) >= max(self.count, 12):
                     return out
         return out
+
+    def suggest_words(self, keyword):
+        return self._suggest_words(keyword)
 
     def _suggest_words(self, keyword):
         keyword = (keyword or "").strip()

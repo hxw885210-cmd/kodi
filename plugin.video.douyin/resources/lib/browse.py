@@ -255,7 +255,15 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
             )
         except DouyinError as exc:
             notify(str(exc), xbmcgui.NOTIFICATION_ERROR)
-            finish(succeeded=False)
+            _search_filter_item(query, sort, pub)
+            add_dir("去热搜榜", {"action": "hot"}, plot="热搜不需要搜索接口")
+            try:
+                words = client().suggest_words(query)
+            except Exception:
+                words = []
+            for word in words[:12]:
+                add_dir(str(word), {"action": "search", "q": str(word), "sort": "0", "pub": "0", "off": "0"})
+            finish(succeeded=True)
             return
         except Exception as exc:
             notify("搜索出错了：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
@@ -279,19 +287,52 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
         next_sid = cached.get("search_id") or search_id
     special = [row for row in items if (row or {}).get("kind") in ("user", "live") or (row or {}).get("room_id")]
     videos = [row for row in items if row not in special]
+    users = [row for row in special if (row or {}).get("kind") == "user"]
+    lives = [row for row in special if (row or {}).get("kind") == "live" or (row or {}).get("room_id")]
     if sort not in ("0", ""):
         videos = sort_videos(videos, sort)
     videos = filter_by_publish(videos, pub)
-    items = special + videos
-    if not items:
-        notify("这一页没有视频了" if offset else "没搜到。搜博主会显示[用户]卡片，换个全名再试，或确认已登录")
+    if not users and not lives and not videos:
+        logged = has_session((session().get("cookies") or {}))
+        notify(
+            "搜索被拦住了。到「已登录」重新贴 Cookie，等半分钟再搜"
+            if logged
+            else "搜索需要登录。把浏览器 Cookie 贴进插件后再搜"
+        )
         _search_filter_item(query, sort, pub)
+        add_dir("去热搜榜", {"action": "hot"}, plot="热搜不需要搜索接口")
+        try:
+            words = client().suggest_words(query)
+        except Exception:
+            words = []
+        if words:
+            add_dir("相关搜索", {"action": "search", "q": query, "sort": sort, "pub": pub, "off": "0"}, plot="点下面的词再搜一次")
+            for word in words[:12]:
+                add_dir(str(word), {"action": "search", "q": str(word), "sort": "0", "pub": "0", "off": "0"})
         if offset > 0:
             add_dir("上一页", {"action": "search", "q": query, "sort": sort, "pub": pub, "off": "0"})
         finish(succeeded=True)
         return
     _search_filter_item(query, sort, pub)
-    playable = [row for row in items if (row or {}).get("kind") != "user" and ((row or {}).get("aweme_id") or (row or {}).get("room_id"))]
+    if users and offset <= 0:
+        names = "、".join(
+            str(row.get("author") or row.get("nickname") or "")
+            for row in users[:6]
+            if row.get("author") or row.get("nickname")
+        )
+        add_dir(
+            "用户（%s）" % len(users),
+            {
+                "action": "search_users",
+                "q": query,
+                "sort": sort,
+                "pub": pub,
+                "off": str(offset),
+                "sid": next_sid or "",
+            },
+            plot="搜索到的用户单独放这里。%s" % (names or "点进去看博主"),
+        )
+    playable = lives + videos
     remember(PROFILE, playable)
     save_queue(
         PROFILE,
@@ -307,24 +348,10 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
             "sid": next_sid or "",
         },
     )
-    for item in items:
-        kind = (item or {}).get("kind") or ""
-        if kind == "user":
-            add_dir(
-                item.get("title") or item.get("author") or "抖音用户",
-                {
-                    "action": "author",
-                    "sec_uid": item.get("sec_uid") or "",
-                    "uid": item.get("uid") or "",
-                    "nickname": item.get("author") or item.get("nickname") or "",
-                },
-                icon=item.get("avatar") or item.get("cover") or "",
-                plot=item.get("plot") or "进入作者主页看作品",
-            )
-        elif kind == "live" or item.get("room_id"):
-            add_live(item)
-        else:
-            add_video(item)
+    for item in lives:
+        add_live(item)
+    for item in videos:
+        add_video(item)
     if offset > 0:
         prev = max(offset - max(len(videos), int(client().count or 20)), 0)
         add_dir("上一页", {"action": "search", "q": query, "sort": sort, "pub": pub, "off": str(prev), "sid": search_id})
@@ -342,6 +369,45 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
             plot="继续往后翻",
         )
     finish(cache=True)
+
+
+def do_search_users(query="", sort="0", pub="0", offset="0", search_id=""):
+    query = (query or "").strip()
+    if not query:
+        show_search_hub()
+        return
+    xbmcplugin.setPluginCategory(handle(), "用户：%s" % query)
+    add_home_dir()
+    add_dir(
+        "回搜索结果",
+        {"action": "search", "q": query, "sort": sort, "pub": pub, "off": str(offset or "0"), "sid": search_id or ""},
+        plot="回到视频列表",
+    )
+    try:
+        off_i = int(offset or 0)
+    except (TypeError, ValueError):
+        off_i = 0
+    cached = load_search_cache(PROFILE, query, sort, pub, off_i)
+    items = (cached or {}).get("items") or []
+    users = [row for row in items if (row or {}).get("kind") == "user"]
+    if not users:
+        notify("这一词没有搜到用户")
+        finish(succeeded=True)
+        return
+    for item in users:
+        add_dir(
+            item.get("author") or item.get("nickname") or "抖音用户",
+            {
+                "action": "author",
+                "sec_uid": item.get("sec_uid") or "",
+                "uid": item.get("uid") or "",
+                "nickname": item.get("author") or item.get("nickname") or "",
+            },
+            icon=item.get("avatar") or item.get("cover") or "",
+            plot=item.get("plot") or "进入作者主页看作品",
+        )
+    finish("files", cache=True)
+
 
 
 def do_search_del(query):

@@ -16,7 +16,7 @@ HISTORY_NAME = "search_history.json"
 SEARCH_CACHE_NAME = "search_cache.json"
 
 SEARCH_CACHE_TTL = 30
-SEARCH_CACHE_VER = "1.5.13"
+SEARCH_CACHE_VER = "1.5.18"
 SEARCH_SORTS = (("0", "综合"), ("1", "最多点赞"), ("2", "最新发布"))
 SEARCH_PUBS = (("0", "时间不限"), ("1", "最近一天"), ("7", "最近一周"), ("180", "最近半年"))
 
@@ -310,6 +310,8 @@ def clear_search_history(profile_dir):
 
 
 def save_search_cache(profile_dir, query, sort, pub, items, offset=0, has_more=False, search_id="", next_offset=0):
+    if not items:
+        return
     os.makedirs(profile_dir, exist_ok=True)
     payload = {
         "q": query or "",

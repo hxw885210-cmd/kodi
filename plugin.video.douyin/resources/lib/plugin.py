@@ -64,11 +64,17 @@ def session():
 
 def persist_session(api, user=None):
     cookies = dict(getattr(api, "cookies", None) or session().get("cookies") or {})
-    prev = session().get("user") or {}
+    prev = session()
+    prev_cookies = dict(prev.get("cookies") or {})
+    if prev_cookies.get("sessionid") and not cookies.get("sessionid"):
+        cookies["sessionid"] = prev_cookies.get("sessionid")
+        if prev_cookies.get("sessionid_ss") and not cookies.get("sessionid_ss"):
+            cookies["sessionid_ss"] = prev_cookies.get("sessionid_ss")
+    prev_user = prev.get("user") or {}
     if user:
-        prev = dict(user)
-    save_session(PROFILE, cookies, prev)
-    return {"cookies": cookies, "user": prev}
+        prev_user = dict(user)
+    save_session(PROFILE, cookies, prev_user)
+    return {"cookies": cookies, "user": prev_user}
 
 
 def client(cookies=None):
