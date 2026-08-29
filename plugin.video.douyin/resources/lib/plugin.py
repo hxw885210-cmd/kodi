@@ -180,6 +180,7 @@ def add_video(item):
                         "sec_uid": item.get("sec_uid") or "",
                         "uid": item.get("uid") or "",
                         "nickname": item.get("author") or "",
+                        "aweme_id": item.get("aweme_id") or "",
                     }
                 ),
             )
@@ -253,6 +254,7 @@ def add_live(item):
                         "sec_uid": item.get("sec_uid") or "",
                         "uid": item.get("uid") or "",
                         "nickname": item.get("author") or "",
+                        "aweme_id": item.get("aweme_id") or "",
                     }
                 ),
             )

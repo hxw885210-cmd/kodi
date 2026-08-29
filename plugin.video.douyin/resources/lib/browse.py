@@ -284,7 +284,7 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
     videos = filter_by_publish(videos, pub)
     items = special + videos
     if not items:
-        notify("这一页没有视频了" if offset else "没搜到视频，换个词、改筛选，或确认已登录")
+        notify("这一页没有视频了" if offset else "没搜到。搜博主会显示[用户]卡片，换个全名再试，或确认已登录")
         _search_filter_item(query, sort, pub)
         if offset > 0:
             add_dir("上一页", {"action": "search", "q": query, "sort": sort, "pub": pub, "off": "0"})

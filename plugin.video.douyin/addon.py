@@ -159,7 +159,12 @@ def router():
     if action == "author":
         from mine import show_author
 
-        show_author(params.get("sec_uid") or "", params.get("uid") or "", params.get("nickname") or "")
+        show_author(
+            params.get("sec_uid") or "",
+            params.get("uid") or "",
+            params.get("nickname") or "",
+            params.get("aweme_id") or "",
+        )
         return
     if action == "toggle_like":
         from mine import do_toggle_like

@@ -337,6 +337,11 @@ class DouyinAPI:
                         continue
                 elif attempt == 0:
                     time.sleep(0.5)
+        if not items and sec_uid:
+            ies_items, ies_data = self._ies_user_posts(sec_uid, max_cursor)
+            if ies_items:
+                items = ies_items
+                last_data = ies_data or last_data
         if not items and not user_id and sec_uid:
             user_id = self._uid_from_profile(sec_uid)
         if not items and user_id:
@@ -385,6 +390,33 @@ class DouyinAPI:
             elif isinstance(data.get("user_info"), dict):
                 user = data.get("user_info")
         return str(user.get("uid") or user.get("id") or "")
+
+    def _ies_user_posts(self, sec_uid, max_cursor=0):
+        sec_uid = str(sec_uid or "").strip()
+        if not sec_uid:
+            return [], None
+        query = urllib.parse.urlencode(
+            {
+                "sec_uid": sec_uid,
+                "count": str(min(self.count, 20)),
+                "max_cursor": str(int(max_cursor or 0)),
+                "aid": "1128",
+            }
+        )
+        try:
+            data = self._request_json(
+                "https://www.iesdouyin.com/web/api/v2/aweme/post/?" + query,
+                headers=self._headers("web", referer="https://www.iesdouyin.com/"),
+                allow_error=True,
+                timeout=15,
+            )
+        except DouyinError:
+            return [], None
+        if not isinstance(data, dict):
+            return [], None
+        if data.get("status_code") not in (0, None):
+            return [], None
+        return _aweme_rows(data), data
 
     def hot_words(self):
         words = self._hot_words_web()
@@ -486,8 +518,9 @@ class DouyinAPI:
                 extra_users = []
             users = _merge_users(users, extra_users)
 
-        if not videos and offset == 0 and users:
-            videos = self._videos_from_users(users[:4])
+        # 搜到用户就先展示卡片，不要立刻去拉每个人的主页，否则搜索后再进作者会被限流。
+        if not videos and offset == 0 and users and not self.logged_in():
+            videos = self._videos_from_users(users[:2])
 
         if not videos and offset == 0:
             try:
@@ -1590,8 +1623,6 @@ def _search_users(data):
             return
         nick = _pick(user, "nickname", "nick_name", "unique_id", "short_id")
         if not nick:
-            return
-        if user.get("aweme_id") or user.get("awemeId") or _as_dict(user.get("video")):
             return
         seen.add(sec)
         row = _normalize_user(user)

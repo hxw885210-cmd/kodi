@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import time
-
 import xbmcgui
 import xbmcplugin
 
@@ -205,9 +203,9 @@ def show_favorite():
     finish(cache=True)
 
 
-def show_author(sec_uid, user_id="", nickname=""):
+def show_author(sec_uid, user_id="", nickname="", aweme_id=""):
     try:
-        _show_author(sec_uid, user_id, nickname)
+        _show_author(sec_uid, user_id, nickname, aweme_id)
     except Exception as exc:
         notify("打不开这个作者主页：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
         try:
@@ -216,11 +214,21 @@ def show_author(sec_uid, user_id="", nickname=""):
             pass
 
 
-def _show_author(sec_uid, user_id="", nickname=""):
+def _show_author(sec_uid, user_id="", nickname="", aweme_id=""):
     sec_uid = str(sec_uid or "").strip()
     user_id = str(user_id or "").strip()
+    aweme_id = str(aweme_id or "").strip()
     xbmcplugin.setPluginCategory(handle(), nickname or "作者主页")
     add_home_dir()
+    api = client()
+    if (not sec_uid or not user_id) and aweme_id:
+        try:
+            detail = api.detail(aweme_id)
+            sec_uid = sec_uid or str(detail.get("sec_uid") or "")
+            user_id = user_id or str(detail.get("uid") or "")
+            nickname = nickname or detail.get("author") or ""
+        except DouyinError:
+            pass
     if not sec_uid and not user_id:
         notify("这条没有作者信息，换一条再进")
         finish(succeeded=True)
@@ -231,29 +239,23 @@ def _show_author(sec_uid, user_id="", nickname=""):
     next_cursor = 0
     err = ""
     try:
-        api = client()
         fresh, has_more, next_cursor = api.user_posts_page(sec_uid, user_id, 0)
-        if not fresh:
-            time.sleep(0.6)
-            fresh, has_more, next_cursor = api.user_posts_page(sec_uid, user_id, 0)
     except DouyinError as exc:
         err = str(exc)
         fresh = []
-        has_more = False
-        next_cursor = 0
     items = []
     seen = set()
     for row in list(fresh) + list(cached):
-        aweme_id = str((row or {}).get("aweme_id") or "")
-        if not aweme_id or aweme_id in seen:
+        aid = str((row or {}).get("aweme_id") or "")
+        if not aid or aid in seen:
             continue
-        seen.add(aweme_id)
+        seen.add(aid)
         items.append(row)
     if not items:
         if err:
-            notify("作者主页暂时打不开：%s。刚搜完容易被限流，过几秒再进，不用重启" % err, xbmcgui.NOTIFICATION_ERROR)
+            notify("作者主页被抖音限了一下，过几秒再进。推荐里进主页更稳")
         else:
-            notify("抖音暂时没返回这个作者的作品。刚搜完容易被限一下，过几秒再进一次就行，不用重启")
+            notify("抖音暂时没返回这个作者的作品。搜索刚结束时容易被限，过几秒再进，不用重启")
         finish(succeeded=True)
         return
     remember(PROFILE, items)

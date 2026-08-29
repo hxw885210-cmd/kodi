@@ -15,6 +15,8 @@ NOW_NAME = "now_playing.json"
 HISTORY_NAME = "search_history.json"
 SEARCH_CACHE_NAME = "search_cache.json"
 
+SEARCH_CACHE_TTL = 30
+SEARCH_CACHE_VER = "1.5.13"
 SEARCH_SORTS = (("0", "综合"), ("1", "最多点赞"), ("2", "最新发布"))
 SEARCH_PUBS = (("0", "时间不限"), ("1", "最近一天"), ("7", "最近一周"), ("180", "最近半年"))
 
@@ -319,6 +321,7 @@ def save_search_cache(profile_dir, query, sort, pub, items, offset=0, has_more=F
         "next_offset": int(next_offset or 0),
         "items": items or [],
         "ts": int(time.time()),
+        "ver": SEARCH_CACHE_VER,
     }
     path = _path(profile_dir, SEARCH_CACHE_NAME)
     tmp = path + ".tmp"
@@ -338,6 +341,14 @@ def load_search_cache(profile_dir, query, sort, pub, offset=0):
         return None
     if not isinstance(data, dict):
         return None
+    if str(data.get("ver") or "") != SEARCH_CACHE_VER:
+        return None
+    try:
+        ts = int(data.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    if ts and int(time.time()) - ts > SEARCH_CACHE_TTL:
+        return None
     if (data.get("q") or "") != (query or ""):
         return None
     if str(data.get("sort") or "0") != str(sort or "0"):
@@ -351,7 +362,7 @@ def load_search_cache(profile_dir, query, sort, pub, offset=0):
     if cached_off != int(offset or 0):
         return None
     items = data.get("items")
-    if not isinstance(items, list):
+    if not isinstance(items, list) or not items:
         return None
     return data
 
