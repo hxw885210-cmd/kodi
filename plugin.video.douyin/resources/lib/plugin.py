@@ -140,15 +140,21 @@ def finish(content="videos", succeeded=True, cache=False):
 
 
 def add_video(item):
-    li = xbmcgui.ListItem(label=item["title"], offscreen=True)
+    item = item or {}
+    title = item.get("title") or item.get("author") or "抖音视频"
+    li = xbmcgui.ListItem(label=title, offscreen=True)
     art = item.get("cover") or ICON
     li.setArt({"icon": art, "thumb": art})
+    try:
+        duration = int(item.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
     li.setInfo(
         "video",
         {
-            "title": item["title"],
-            "plot": item.get("plot") or item["title"],
-            "duration": int(item.get("duration") or 0),
+            "title": title,
+            "plot": item.get("plot") or title,
+            "duration": duration,
             "mediatype": "video",
         },
     )
@@ -159,11 +165,11 @@ def add_video(item):
             "action": "play",
             "aweme_id": item.get("aweme_id") or "",
             "video_id": item.get("video_id") or "",
-            "title": item.get("title") or "",
+            "title": title,
         }
     )
     menus = []
-    if item.get("sec_uid"):
+    if item.get("sec_uid") or item.get("uid"):
         menus.append(
             (
                 "进入作者主页",
@@ -178,6 +184,7 @@ def add_video(item):
                 ),
             )
         )
+    if item.get("sec_uid"):
         followed = is_followed(PROFILE, item.get("sec_uid"))
         menus.append(
             (

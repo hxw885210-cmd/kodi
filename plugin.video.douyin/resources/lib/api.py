@@ -300,37 +300,91 @@ class DouyinAPI:
             max_cursor = int(max_cursor or 0)
         except (TypeError, ValueError):
             max_cursor = 0
-        data = None
+        sec_uid = str(sec_uid or "").strip()
+        user_id = str(user_id or "").strip()
+        last_data = None
         items = []
         if sec_uid:
-            try:
-                data = self._web_json(
-                    "/aweme/v1/web/aweme/post/",
-                    dict(
-                        self.web_params(),
-                        sec_user_id=str(sec_uid),
-                        max_cursor=str(max_cursor),
-                        count=str(self.count),
-                        locate_query="false",
-                    ),
-                    allow_error=True,
-                )
-                items = _aweme_rows(data)
-            except DouyinError:
-                data = None
-                items = []
+            for attempt in range(2):
+                try:
+                    data = self._web_json(
+                        "/aweme/v1/web/aweme/post/",
+                        dict(
+                            self.web_params(),
+                            sec_user_id=sec_uid,
+                            max_cursor=str(max_cursor),
+                            count=str(min(self.count, 20)),
+                            locate_query="false",
+                            show_live_replay_strategy="1",
+                            need_time_list="1",
+                            time_list_query="0",
+                        ),
+                        allow_error=True,
+                        referer="%s/user/%s" % (WEB_ORIGIN, urllib.parse.quote(sec_uid)),
+                        timeout=15,
+                    )
+                except DouyinError:
+                    data = None
+                if isinstance(data, dict):
+                    last_data = data
+                    code = data.get("status_code")
+                    if code in (0, None):
+                        items = _aweme_rows(data)
+                        if items:
+                            break
+                    if attempt == 0:
+                        time.sleep(0.7)
+                        continue
+                elif attempt == 0:
+                    time.sleep(0.5)
+        if not items and not user_id and sec_uid:
+            user_id = self._uid_from_profile(sec_uid)
         if not items and user_id:
             try:
                 params = self.common_params()
-                params.update({"user_id": str(user_id), "max_cursor": str(max_cursor)})
+                params.update({"user_id": user_id, "max_cursor": str(max_cursor)})
                 data = self._get_json("/aweme/v1/aweme/post/", params, allow_error=True)
-                items = _aweme_rows(data)
+                if isinstance(data, dict):
+                    last_data = data
+                    items = _aweme_rows(data)
             except DouyinError:
-                data = None
-                items = []
-        out = [_normalize(item) for item in items if _is_video(item)]
-        has_more, next_cursor = _page_cursor(data, max_cursor, len(out), self.count)
+                items = items or []
+        out = []
+        for item in items:
+            if not _is_search_video(item):
+                continue
+            row = _safe_normalize(item)
+            if row:
+                out.append(row)
+        has_more, next_cursor = _page_cursor(last_data, max_cursor, len(out), self.count)
         return out, has_more, next_cursor
+
+    def _uid_from_profile(self, sec_uid):
+        sec_uid = str(sec_uid or "").strip()
+        if not sec_uid:
+            return ""
+        try:
+            data = self._web_json(
+                "/aweme/v1/web/user/profile/other/",
+                dict(
+                    self.web_params(),
+                    sec_user_id=sec_uid,
+                    publish_video_strategy_type="2",
+                    personal_center_strategy="1",
+                ),
+                allow_error=True,
+                referer="%s/user/%s" % (WEB_ORIGIN, urllib.parse.quote(sec_uid)),
+                timeout=12,
+            )
+        except DouyinError:
+            return ""
+        user = {}
+        if isinstance(data, dict):
+            if isinstance(data.get("user"), dict):
+                user = data.get("user")
+            elif isinstance(data.get("user_info"), dict):
+                user = data.get("user_info")
+        return str(user.get("uid") or user.get("id") or "")
 
     def hot_words(self):
         words = self._hot_words_web()
@@ -425,11 +479,12 @@ class DouyinAPI:
             login_err = exc
             videos, users, lives = [], [], []
 
-        if offset == 0 and not users:
+        if offset == 0:
             try:
-                users = self._user_search(keyword)
+                extra_users = self._user_search(keyword)
             except DouyinError:
-                users = []
+                extra_users = []
+            users = _merge_users(users, extra_users)
 
         if not videos and offset == 0 and users:
             videos = self._videos_from_users(users[:4])
@@ -481,7 +536,7 @@ class DouyinAPI:
 
     def _search_params(self, keyword, sort_type, publish_time, offset, search_id, channel, source):
         filtered = sort_type not in ("0", "") or publish_time not in ("0", "")
-        count = str(min(15, max(10, int(self.count or 15))))
+        count = "15"
         params = dict(
             self.web_params(),
             keyword=keyword,
@@ -495,6 +550,8 @@ class DouyinAPI:
             is_filter_search="1" if filtered else "0",
             from_group_id="",
             need_filter_settings="1",
+            list_type="multi",
+            enable_history="1",
             publish_video_strategy_type="2",
             cpu_core_num="8",
             device_memory="8",
@@ -522,10 +579,10 @@ class DouyinAPI:
             offset = 0
         search_id = str(search_id or "")
         attempts = (
+            ("/aweme/v1/web/general/search/single/", "aweme_general", "tab_search"),
+            ("/aweme/v1/web/general/search/single/", "aweme_general", "normal_search"),
             ("/aweme/v1/web/search/item/", "aweme_video_web", "tab_search"),
             ("/aweme/v1/web/search/item/", "aweme_video_web", "normal_search"),
-            ("/aweme/v1/web/general/search/single/", "aweme_general", "normal_search"),
-            ("/aweme/v1/web/general/search/single/", "aweme_video_web", "tab_search"),
         )
         last = None
         login_err = None
@@ -553,7 +610,13 @@ class DouyinAPI:
             if code not in (0, None):
                 last = DouyinError(msg or ("错误码 %s" % code))
                 continue
-            videos = [_normalize(item) for item in _search_awemes(data) if _is_search_video(item)]
+            videos = []
+            for item in _search_awemes(data):
+                if not _is_search_video(item):
+                    continue
+                row = _safe_normalize(item)
+                if row:
+                    videos.append(row)
             users = _search_users(data)
             lives = []
             for room in _live_search_rooms(data):
@@ -588,28 +651,68 @@ class DouyinAPI:
         keyword = (keyword or "").strip()
         if not keyword:
             return []
-        params = dict(
-            self.web_params(),
-            keyword=keyword,
-            search_channel="aweme_user_web",
-            search_source="normal_search",
-            query_correct_type="1",
-            is_filter_search="0",
-            offset=str(int(offset or 0)),
-            count="12",
-            from_group_id="",
-        )
-        ms_token = (self.cookies.get("msToken") or "").strip()
-        if ms_token:
-            params["msToken"] = ms_token
         try:
-            data = self._web_json(
-                "/aweme/v1/web/discover/search/",
-                params,
-                allow_error=True,
-                referer=self._search_referer(keyword, "user"),
-                timeout=15,
+            offset = int(offset or 0)
+        except (TypeError, ValueError):
+            offset = 0
+        attempts = (
+            ("/aweme/v1/web/discover/search/", "aweme_user_web", "switch_tab"),
+            ("/aweme/v1/web/discover/search/", "aweme_user_web", "normal_search"),
+            ("/aweme/v1/web/general/search/single/", "aweme_user_web", "tab_search"),
+        )
+        users = []
+        for path, channel, source in attempts:
+            params = dict(
+                self.web_params(),
+                keyword=keyword,
+                search_channel=channel,
+                search_source=source,
+                query_correct_type="1",
+                is_filter_search="0",
+                offset=str(offset),
+                count="10",
+                from_group_id="",
             )
+            ms_token = (self.cookies.get("msToken") or "").strip()
+            if ms_token:
+                params["msToken"] = ms_token
+            try:
+                data = self._web_json(
+                    path,
+                    params,
+                    allow_error=True,
+                    referer=self._search_referer(keyword, "user"),
+                    timeout=15,
+                )
+            except DouyinError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            code = data.get("status_code")
+            if code not in (0, None):
+                continue
+            found = _search_users(data)
+            if found:
+                users = _merge_users(users, found)
+                break
+        if not users:
+            users = self._app_user_search(keyword, offset)
+        return users
+
+    def _app_user_search(self, keyword, offset=0):
+        params = self.common_params()
+        params.update(
+            {
+                "keyword": keyword,
+                "count": "10",
+                "cursor": str(int(offset or 0)),
+                "type": "1",
+                "hot_search": "0",
+                "search_source": "discover",
+            }
+        )
+        try:
+            data = self._get_json("/aweme/v1/discover/search/", params, allow_error=True)
         except DouyinError:
             return []
         if not isinstance(data, dict):
@@ -1101,6 +1204,8 @@ class DouyinAPI:
             raise DouyinError("连接失败：%s" % exc.reason) from exc
         except ssl.SSLError as exc:
             raise DouyinError("SSL 失败：%s" % exc) from exc
+        except (TimeoutError, OSError) as exc:
+            raise DouyinError("连接失败：%s" % exc) from exc
 
     def _absorb_cookies(self, headers):
         raw_list = []
@@ -1403,7 +1508,18 @@ def _maybe_json(value):
 
 
 def _aweme_rows(data):
-    return _search_awemes(data) if isinstance(data, dict) else []
+    if not isinstance(data, dict):
+        return []
+    rows = data.get("aweme_list")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    payload = data.get("data")
+    if isinstance(payload, dict) and isinstance(payload.get("aweme_list"), list):
+        return [row for row in payload.get("aweme_list") if isinstance(row, dict)]
+    detail = data.get("aweme_detail")
+    if isinstance(detail, dict) and (detail.get("aweme_id") or detail.get("awemeId")):
+        return [detail]
+    return _search_awemes(data)
 
 
 def _search_awemes(data):
@@ -1462,23 +1578,28 @@ def _search_users(data):
     def add(user):
         if not isinstance(user, dict):
             return
-        if isinstance(user.get("user_info"), dict):
-            user = user["user_info"]
-        elif isinstance(user.get("user"), dict) and not user.get("sec_uid"):
-            user = user["user"]
-        sec = str(user.get("sec_uid") or user.get("sec_user_id") or "")
+        for key in ("user_info", "user", "author", "author_info", "authorInfo"):
+            nested = user.get(key)
+            if isinstance(nested, dict) and (
+                nested.get("sec_uid") or nested.get("sec_user_id") or nested.get("secUid") or nested.get("nickname")
+            ):
+                user = nested
+                break
+        sec = _pick(user, "sec_uid", "sec_user_id", "secUid")
         if not sec or sec in seen:
             return
-        nick = (user.get("nickname") or "").strip()
+        nick = _pick(user, "nickname", "nick_name", "unique_id", "short_id")
         if not nick:
             return
-        if user.get("aweme_id") or user.get("video"):
+        if user.get("aweme_id") or user.get("awemeId") or _as_dict(user.get("video")):
             return
         seen.add(sec)
-        out.append(_normalize_user(user))
+        row = _normalize_user(user)
+        if row:
+            out.append(row)
 
     def walk(node, depth=0):
-        if depth > 6 or node is None:
+        if depth > 8 or node is None:
             return
         node = _maybe_json(node)
         if isinstance(node, list):
@@ -1488,20 +1609,45 @@ def _search_users(data):
         if not isinstance(node, dict):
             return
         ntype = node.get("type")
-        card = str(node.get("card_unique_name") or node.get("card_id") or "")
-        if ntype in (2, 4, 1005, "2", "4") or "user" in card.lower():
-            for key in ("user_list", "users", "user_info", "user"):
+        card = str(node.get("card_unique_name") or node.get("card_id") or node.get("card_name") or "").lower()
+        userish = (
+            ntype in (2, 4, 14, 16, 999, 1005, "2", "4", "14", "16", "999", "1005")
+            or "user" in card
+            or "star" in card
+            or "celeb" in card
+            or node.get("user_list")
+            or node.get("user_info")
+        )
+        if userish:
+            for key in (
+                "user_list",
+                "users",
+                "user_info",
+                "user",
+                "common_aladdin",
+                "display",
+                "star_info",
+                "famous_user",
+            ):
                 val = node.get(key)
                 if isinstance(val, list):
                     for row in val:
                         add(row)
                 elif isinstance(val, dict):
                     add(val)
-        if node.get("user_list"):
-            walk(node.get("user_list"), depth + 1)
-        if node.get("sec_uid") and node.get("nickname") and not node.get("aweme_id") and not node.get("video"):
-            add(node)
-        for key in ("data", "user_list", "users"):
+        if _pick(node, "sec_uid", "sec_user_id", "secUid") and _pick(node, "nickname", "unique_id"):
+            if not node.get("aweme_id") and not node.get("video"):
+                add(node)
+        for key in (
+            "data",
+            "user_list",
+            "users",
+            "business_data",
+            "card_info",
+            "cards",
+            "common_aladdin",
+            "display",
+        ):
             if key in node:
                 walk(node.get(key), depth + 1)
 
@@ -1509,12 +1655,81 @@ def _search_users(data):
     return out
 
 
+def _merge_users(left, right):
+    seen = set()
+    out = []
+    for row in list(left or []) + list(right or []):
+        if not isinstance(row, dict):
+            continue
+        sec = str(row.get("sec_uid") or "")
+        if not sec or sec in seen:
+            continue
+        seen.add(sec)
+        out.append(row)
+    return out
+
+
+def _as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _pick(node, *keys):
+    if not isinstance(node, dict):
+        return ""
+    for key in keys:
+        val = node.get(key)
+        if val is None or isinstance(val, (dict, list, bool)):
+            continue
+        text = str(val).strip()
+        if text:
+            return text
+    return ""
+
+
+def _safe_int(value, default=0):
+    if value is None or value is False or isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(value, dict):
+        for key in ("count", "value", "min"):
+            if key in value:
+                return _safe_int(value.get(key), default)
+        return default
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return default
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return default
+
+
+def _author_node(item):
+    item = _as_dict(item)
+    for key in ("author", "author_info", "authorInfo", "user_info", "user"):
+        node = item.get(key)
+        if isinstance(node, dict) and (
+            node.get("sec_uid")
+            or node.get("sec_user_id")
+            or node.get("secUid")
+            or node.get("nickname")
+            or node.get("uid")
+        ):
+            return node
+    return {}
+
+
 def _normalize_user(user):
-    nick = (user.get("nickname") or "抖音用户").strip()
-    fans = int(user.get("follower_count") or user.get("mplatform_followers_count") or 0)
-    works = int(user.get("aweme_count") or 0)
-    sig = (user.get("signature") or "").strip()
-    uid_show = (user.get("unique_id") or user.get("short_id") or user.get("custom_verify") or "").strip()
+    user = _as_dict(user)
+    nick = _pick(user, "nickname", "nick_name", "unique_id", "short_id") or "抖音用户"
+    fans = _safe_int(user.get("follower_count") or user.get("mplatform_followers_count"))
+    works = _safe_int(user.get("aweme_count"))
+    sig = _pick(user, "signature")
+    uid_show = _pick(user, "unique_id", "short_id", "custom_verify")
     plot_bits = []
     if uid_show and uid_show != nick:
         plot_bits.append("抖音号 %s" % uid_show)
@@ -1524,11 +1739,13 @@ def _normalize_user(user):
         plot_bits.append("作品 %s" % _human(works))
     if sig:
         plot_bits.append(sig)
-    avatar = _first_url(user.get("avatar_thumb") or user.get("avatar_medium") or user.get("avatar_larger") or user.get("avatar") or {})
+    avatar = _first_url(
+        user.get("avatar_thumb") or user.get("avatar_medium") or user.get("avatar_larger") or user.get("avatar") or {}
+    )
     return {
         "kind": "user",
-        "sec_uid": str(user.get("sec_uid") or user.get("sec_user_id") or ""),
-        "uid": str(user.get("uid") or user.get("id") or ""),
+        "sec_uid": _pick(user, "sec_uid", "sec_user_id", "secUid"),
+        "uid": _pick(user, "uid", "id", "user_id"),
         "author": nick,
         "title": "[用户] %s" % nick,
         "nickname": nick,
@@ -1538,21 +1755,23 @@ def _normalize_user(user):
         "aweme_id": "",
         "video_id": "",
         "likes": fans,
-        "create_time": int(time.time()),
+        "create_time": _safe_int(time.time()),
         "duration": 0,
     }
 
 
 def _is_video(item):
-    return _is_search_video(item) and bool(_play_node((item or {}).get("video") or {}).get("uri") or (_play_node((item or {}).get("video") or {}).get("url_list") or [None])[0])
+    play = _play_node(_as_dict((item or {}).get("video")))
+    return _is_search_video(item) and bool(play.get("uri") or (play.get("url_list") or [None])[0])
 
 
 def _is_search_video(item):
-    if not item or not (item.get("aweme_id") or item.get("awemeId")):
+    item = _as_dict(item)
+    if not (item.get("aweme_id") or item.get("awemeId")):
         return False
     if item.get("aweme_type") in (2, 68, 101, "2", "68", "101"):
         return False
-    if item.get("images") and not (item.get("video") or {}):
+    if item.get("images") and not _as_dict(item.get("video")):
         return False
     return True
 
@@ -1560,7 +1779,7 @@ def _is_search_video(item):
 def _play_node(video):
     if not isinstance(video, dict):
         return {}
-    h264 = video.get("play_addr_h264") or {}
+    h264 = _as_dict(video.get("play_addr_h264"))
     if h264.get("uri") or (h264.get("url_list") or [None])[0]:
         return h264
     for bitrate in video.get("bit_rate") or []:
@@ -1568,18 +1787,18 @@ def _play_node(video):
             continue
         if bitrate.get("is_h265") or bitrate.get("is_bytevc1"):
             continue
-        node = bitrate.get("play_addr") or {}
+        node = _as_dict(bitrate.get("play_addr"))
         if node.get("uri") or (node.get("url_list") or [None])[0]:
             return node
     for bitrate in video.get("bit_rate") or []:
         if not isinstance(bitrate, dict):
             continue
-        node = bitrate.get("play_addr") or {}
+        node = _as_dict(bitrate.get("play_addr"))
         if node.get("uri") or (node.get("url_list") or [None])[0]:
             return node
     for key in ("play_addr", "play_addr_h264", "play_addr_bytevc1", "download_addr"):
-        node = video.get(key) or {}
-        if isinstance(node, dict) and (node.get("uri") or (node.get("url_list") or [None])[0]):
+        node = _as_dict(video.get(key))
+        if node.get("uri") or (node.get("url_list") or [None])[0]:
             return node
     return {}
 
@@ -1619,42 +1838,54 @@ def _parse_hot_words(data):
     return out
 
 
+def _safe_normalize(item):
+    try:
+        row = _normalize(item)
+    except Exception:
+        return None
+    if not row or not row.get("aweme_id"):
+        return None
+    return row
+
+
 def _normalize(item):
-    author = item.get("author") or {}
-    video = item.get("video") or {}
+    item = _as_dict(item)
+    author = _author_node(item)
+    video = _as_dict(item.get("video"))
     play = _play_node(video)
     cover = video.get("cover") or video.get("origin_cover") or {}
-    stats = item.get("statistics") or {}
-    desc = (item.get("desc") or "").strip()
-    nick = (author.get("nickname") or "抖音用户").strip()
+    stats = _as_dict(item.get("statistics"))
+    desc = _pick(item, "desc", "description", "title")
+    nick = _pick(author, "nickname", "nick_name", "unique_id") or "抖音用户"
     title = desc if desc else ("@%s 的视频" % nick)
     if len(title) > 80:
         title = title[:77] + "…"
-    duration_ms = int(video.get("duration") or item.get("duration") or 0)
+    duration_ms = _safe_int(video.get("duration") or item.get("duration"))
     duration = duration_ms // 1000 if duration_ms > 1000 else duration_ms
-    likes = int(stats.get("digg_count") or 0)
-    comments = int(stats.get("comment_count") or 0)
+    likes = _safe_int(stats.get("digg_count"))
+    comments = _safe_int(stats.get("comment_count"))
     plot_bits = [desc or title, "@%s" % nick]
     if likes:
         plot_bits.append("赞 %s" % _human(likes))
     if comments:
         plot_bits.append("评 %s" % _human(comments))
     return {
-        "aweme_id": str(item.get("aweme_id") or ""),
+        "aweme_id": _pick(item, "aweme_id", "awemeId"),
         "video_id": str(play.get("uri") or ""),
         "title": title,
         "plot": "  ·  ".join(plot_bits),
         "author": nick,
-        "uid": str(author.get("uid") or ""),
-        "sec_uid": str(author.get("sec_uid") or ""),
+        "uid": _pick(author, "uid", "id", "user_id") or _pick(item, "uid", "user_id"),
+        "sec_uid": _pick(author, "sec_uid", "sec_user_id", "secUid") or _pick(item, "sec_uid", "sec_user_id"),
         "avatar": _first_url(author.get("avatar_thumb") or author.get("avatar_medium") or {}),
         "cover": _first_url(cover),
         "duration": duration,
-        "width": int(video.get("width") or 0),
-        "height": int(video.get("height") or 0),
+        "width": _safe_int(video.get("width")),
+        "height": _safe_int(video.get("height")),
         "likes": likes,
-        "create_time": int(item.get("create_time") or time.time()),
+        "create_time": _safe_int(item.get("create_time"), int(time.time())),
     }
+
 
 
 def _human(n):

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import time
+
+import xbmcgui
 import xbmcplugin
 
 from api import DouyinError
@@ -203,19 +206,38 @@ def show_favorite():
 
 
 def show_author(sec_uid, user_id="", nickname=""):
+    try:
+        _show_author(sec_uid, user_id, nickname)
+    except Exception as exc:
+        notify("打不开这个作者主页：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
+        try:
+            finish(succeeded=False)
+        except Exception:
+            pass
+
+
+def _show_author(sec_uid, user_id="", nickname=""):
+    sec_uid = str(sec_uid or "").strip()
+    user_id = str(user_id or "").strip()
     xbmcplugin.setPluginCategory(handle(), nickname or "作者主页")
     add_home_dir()
-    cached = videos_by_author(PROFILE, sec_uid)
+    if not sec_uid and not user_id:
+        notify("这条没有作者信息，换一条再进")
+        finish(succeeded=True)
+        return
+    cached = videos_by_author(PROFILE, sec_uid) if sec_uid else []
     fresh = []
     has_more = False
     next_cursor = 0
+    err = ""
     try:
         api = client()
-        if hasattr(api, "user_posts_page"):
+        fresh, has_more, next_cursor = api.user_posts_page(sec_uid, user_id, 0)
+        if not fresh:
+            time.sleep(0.6)
             fresh, has_more, next_cursor = api.user_posts_page(sec_uid, user_id, 0)
-        elif hasattr(api, "user_posts"):
-            fresh = api.user_posts(sec_uid, user_id) or []
-    except DouyinError:
+    except DouyinError as exc:
+        err = str(exc)
         fresh = []
         has_more = False
         next_cursor = 0
@@ -228,7 +250,10 @@ def show_author(sec_uid, user_id="", nickname=""):
         seen.add(aweme_id)
         items.append(row)
     if not items:
-        notify("暂时没有这个作者的视频，先从推荐里多刷几条再进主页")
+        if err:
+            notify("作者主页暂时打不开：%s。刚搜完容易被限流，过几秒再进，不用重启" % err, xbmcgui.NOTIFICATION_ERROR)
+        else:
+            notify("抖音暂时没返回这个作者的作品。刚搜完容易被限一下，过几秒再进一次就行，不用重启")
         finish(succeeded=True)
         return
     remember(PROFILE, items)

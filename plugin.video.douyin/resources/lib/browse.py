@@ -257,6 +257,10 @@ def do_search(query=None, sort="0", pub="0", offset="0", search_id=""):
             notify(str(exc), xbmcgui.NOTIFICATION_ERROR)
             finish(succeeded=False)
             return
+        except Exception as exc:
+            notify("搜索出错了：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
+            finish(succeeded=False)
+            return
         save_search_cache(
             PROFILE,
             query,

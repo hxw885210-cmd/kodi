@@ -197,4 +197,20 @@ def router():
 
 
 if __name__ == "__main__":
-    router()
+    try:
+        router()
+    except Exception as exc:
+        try:
+            import xbmc
+            import xbmcgui
+            from plugin import finish, notify
+
+            xbmc.log("[plugin.video.douyin] %s" % exc, xbmc.LOGERROR)
+            notify("出错了：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
+            try:
+                finish(succeeded=False)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
