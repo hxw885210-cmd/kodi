@@ -89,7 +89,15 @@ def client(cookies=None):
 
 
 def plugin_url(query):
-    return base_url() + "?" + urllib.parse.urlencode({k: v for k, v in query.items() if v is not None})
+    out = {}
+    for key, value in (query or {}).items():
+        if value is None or isinstance(value, (dict, list, tuple, bool)):
+            continue
+        text = str(value).strip() if not isinstance(value, (int, float)) else str(value)
+        if text == "" and key not in ("off", "sort", "pub", "page"):
+            continue
+        out[str(key)] = text
+    return base_url() + "?" + urllib.parse.urlencode(out)
 
 
 def get_params():
@@ -140,20 +148,27 @@ def finish(content="videos", succeeded=True, cache=False):
 
 
 def add_video(item):
-    item = item or {}
+    item = item if isinstance(item, dict) else {}
     title = item.get("title") or item.get("author") or "抖音视频"
+    if not isinstance(title, str):
+        title = str(title)
     li = xbmcgui.ListItem(label=title, offscreen=True)
     art = item.get("cover") or ICON
+    if not isinstance(art, str):
+        art = ICON
     li.setArt({"icon": art, "thumb": art})
     try:
         duration = int(item.get("duration") or 0)
-    except (TypeError, ValueError):
+    except Exception:
         duration = 0
+    plot = item.get("plot") or title
+    if not isinstance(plot, str):
+        plot = title
     li.setInfo(
         "video",
         {
             "title": title,
-            "plot": item.get("plot") or title,
+            "plot": plot,
             "duration": duration,
             "mediatype": "video",
         },
@@ -169,24 +184,29 @@ def add_video(item):
         }
     )
     menus = []
-    if item.get("sec_uid") or item.get("uid"):
+    sec_uid = item.get("sec_uid") or ""
+    uid = item.get("uid") or ""
+    author = item.get("author") or ""
+    if not isinstance(author, str):
+        author = ""
+    if sec_uid or uid:
         menus.append(
             (
                 "进入作者主页",
-                "Container.Update(%s)"
+                "RunPlugin(%s)"
                 % plugin_url(
                     {
-                        "action": "author",
-                        "sec_uid": item.get("sec_uid") or "",
-                        "uid": item.get("uid") or "",
-                        "nickname": item.get("author") or "",
+                        "action": "open_author",
+                        "sec_uid": sec_uid,
+                        "uid": uid,
+                        "nickname": author,
                         "aweme_id": item.get("aweme_id") or "",
                     }
                 ),
             )
         )
-    if item.get("sec_uid"):
-        followed = is_followed(PROFILE, item.get("sec_uid"))
+    if sec_uid:
+        followed = is_followed(PROFILE, sec_uid)
         menus.append(
             (
                 "取消关注" if followed else "关注作者",
@@ -194,9 +214,9 @@ def add_video(item):
                 % plugin_url(
                     {
                         "action": "toggle_follow",
-                        "sec_uid": item.get("sec_uid") or "",
-                        "uid": item.get("uid") or "",
-                        "nickname": item.get("author") or "",
+                        "sec_uid": sec_uid,
+                        "uid": uid,
+                        "nickname": author,
                         "avatar": item.get("avatar") or "",
                     }
                 ),
@@ -212,13 +232,13 @@ def add_video(item):
                     "action": "toggle_like",
                     "aweme_id": item.get("aweme_id") or "",
                     "video_id": item.get("video_id") or "",
-                    "title": item.get("title") or "",
-                    "author": item.get("author") or "",
-                    "sec_uid": item.get("sec_uid") or "",
-                    "uid": item.get("uid") or "",
+                    "title": title,
+                    "author": author,
+                    "sec_uid": sec_uid,
+                    "uid": uid,
                     "cover": item.get("cover") or "",
                     "avatar": item.get("avatar") or "",
-                    "duration": str(item.get("duration") or 0),
+                    "duration": str(duration),
                 }
             ),
         )
@@ -247,14 +267,13 @@ def add_live(item):
         menus.append(
             (
                 "进入主播首页",
-                "Container.Update(%s)"
+                "RunPlugin(%s)"
                 % plugin_url(
                     {
-                        "action": "author",
+                        "action": "open_author",
                         "sec_uid": item.get("sec_uid") or "",
                         "uid": item.get("uid") or "",
                         "nickname": item.get("author") or "",
-                        "aweme_id": item.get("aweme_id") or "",
                     }
                 ),
             )

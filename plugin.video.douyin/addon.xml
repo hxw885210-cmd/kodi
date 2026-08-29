@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.douyin" name="抖音" version="1.5.14" provider-name="xiaojiu885210-arch">
+<addon id="plugin.video.douyin" name="抖音" version="1.5.15" provider-name="xiaojiu885210-arch">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
@@ -16,7 +16,7 @@
     <license>MIT</license>
     <source>https://github.com/xiaojiu885210-arch/kodi</source>
     <website>https://github.com/xiaojiu885210-arch/kodi</website>
-    <news lang="zh_CN">1.5.14: 搜索补网页签名，人名/博主能出用户卡片；关注里的博主也能搜到。</news>
+    <news lang="zh_CN">1.5.15: 搜索结果里用户单独进「用户」文件夹；长按进作者主页不再闪退。</news>
     <assets>
       <icon>resources/media/icon.png</icon>
       <fanart>resources/media/fanart.png</fanart>

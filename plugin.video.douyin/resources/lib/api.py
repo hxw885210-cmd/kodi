@@ -322,7 +322,6 @@ class DouyinAPI:
                         allow_error=True,
                         referer="%s/user/%s" % (WEB_ORIGIN, urllib.parse.quote(sec_uid)),
                         timeout=15,
-                        sign=True,
                     )
                 except DouyinError:
                     data = None
@@ -1014,7 +1013,10 @@ class DouyinAPI:
                 item = None
         if not item:
             raise DouyinError("视频不存在或已删除")
-        return _normalize(item)
+        row = _safe_normalize(item)
+        if not row:
+            raise DouyinError("视频解析失败")
+        return row
 
     def from_share(self, text):
         aweme_id = self.resolve_aweme_id(text)
