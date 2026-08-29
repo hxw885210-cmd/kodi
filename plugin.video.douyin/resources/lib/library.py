@@ -16,7 +16,7 @@ HISTORY_NAME = "search_history.json"
 SEARCH_CACHE_NAME = "search_cache.json"
 
 SEARCH_CACHE_TTL = 30
-SEARCH_CACHE_VER = "1.5.15"
+SEARCH_CACHE_VER = "1.5.16"
 SEARCH_SORTS = (("0", "综合"), ("1", "最多点赞"), ("2", "最新发布"))
 SEARCH_PUBS = (("0", "时间不限"), ("1", "最近一天"), ("7", "最近一周"), ("180", "最近半年"))
 

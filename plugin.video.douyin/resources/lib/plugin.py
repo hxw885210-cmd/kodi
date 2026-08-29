@@ -91,12 +91,12 @@ def client(cookies=None):
 def plugin_url(query):
     out = {}
     for key, value in (query or {}).items():
-        if value is None or isinstance(value, (dict, list, tuple, bool)):
+        if value is None:
             continue
-        text = str(value).strip() if not isinstance(value, (int, float)) else str(value)
-        if text == "" and key not in ("off", "sort", "pub", "page"):
-            continue
-        out[str(key)] = text
+        if isinstance(value, str):
+            out[key] = value
+        else:
+            out[key] = str(value)
     return base_url() + "?" + urllib.parse.urlencode(out)
 
 
