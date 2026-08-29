@@ -18,7 +18,6 @@ from plugin import (
     finish,
     notify,
     persist_session,
-    plugin_url,
     session,
 )
 
@@ -204,29 +203,6 @@ def show_favorite():
     finish(cache=True)
 
 
-def open_author(sec_uid, user_id="", nickname="", aweme_id=""):
-    """Context menu on a playable item cannot Container.Update safely. Bounce first."""
-    url = plugin_url(
-        {
-            "action": "author",
-            "sec_uid": sec_uid or "",
-            "uid": user_id or "",
-            "nickname": nickname or "",
-            "aweme_id": aweme_id or "",
-        }
-    )
-    try:
-        import xbmc
-
-        xbmc.executebuiltin("Container.Update(%s)" % url)
-    except Exception as exc:
-        notify("打不开作者主页：%s" % exc, xbmcgui.NOTIFICATION_ERROR)
-    try:
-        xbmcplugin.endOfDirectory(handle(), succeeded=True)
-    except Exception:
-        pass
-
-
 def show_author(sec_uid, user_id="", nickname="", aweme_id=""):
     try:
         _show_author(sec_uid, user_id, nickname, aweme_id)
@@ -242,18 +218,16 @@ def _show_author(sec_uid, user_id="", nickname="", aweme_id=""):
     sec_uid = str(sec_uid or "").strip()
     user_id = str(user_id or "").strip()
     aweme_id = str(aweme_id or "").strip()
-    nickname = str(nickname or "").strip()
     xbmcplugin.setPluginCategory(handle(), nickname or "作者主页")
     add_home_dir()
     api = client()
-    if not sec_uid and aweme_id:
+    if (not sec_uid or not user_id) and aweme_id:
         try:
             detail = api.detail(aweme_id)
-            if isinstance(detail, dict):
-                sec_uid = str(detail.get("sec_uid") or "")
-                user_id = user_id or str(detail.get("uid") or "")
-                nickname = nickname or str(detail.get("author") or "")
-        except Exception:
+            sec_uid = sec_uid or str(detail.get("sec_uid") or "")
+            user_id = user_id or str(detail.get("uid") or "")
+            nickname = nickname or detail.get("author") or ""
+        except DouyinError:
             pass
     if not sec_uid and not user_id:
         notify("这条没有作者信息，换一条再进")
@@ -269,46 +243,35 @@ def _show_author(sec_uid, user_id="", nickname="", aweme_id=""):
     except DouyinError as exc:
         err = str(exc)
         fresh = []
-    except Exception as exc:
-        err = str(exc)
-        fresh = []
     items = []
     seen = set()
-    for row in list(fresh or []) + list(cached or []):
-        if not isinstance(row, dict):
-            continue
-        aid = str(row.get("aweme_id") or "")
+    for row in list(fresh) + list(cached):
+        aid = str((row or {}).get("aweme_id") or "")
         if not aid or aid in seen:
             continue
         seen.add(aid)
         items.append(row)
     if not items:
         if err:
-            notify("作者主页暂时打不开，过几秒再进。点搜索里的「用户」文件夹更稳")
+            notify("作者主页被抖音限了一下，过几秒再进。推荐里进主页更稳")
         else:
-            notify("这个作者暂时没有作品。去搜索结果的「用户」文件夹点他的卡片")
+            notify("抖音暂时没返回这个作者的作品。搜索刚结束时容易被限，过几秒再进，不用重启")
         finish(succeeded=True)
         return
     remember(PROFILE, items)
-    try:
-        save_queue(
-            PROFILE,
-            items,
-            {
-                "kind": "author",
-                "sec_uid": sec_uid or "",
-                "uid": user_id or "",
-                "max_cursor": int(next_cursor or 0),
-                "has_more": bool(has_more),
-            },
-        )
-    except Exception:
-        pass
+    save_queue(
+        PROFILE,
+        items,
+        {
+            "kind": "author",
+            "sec_uid": sec_uid or "",
+            "uid": user_id or "",
+            "max_cursor": int(next_cursor or 0),
+            "has_more": bool(has_more),
+        },
+    )
     for item in items:
-        try:
-            add_video(item)
-        except Exception:
-            continue
+        add_video(item)
     finish(cache=True)
 
 
@@ -322,13 +285,9 @@ def do_toggle_like(params):
         "uid": params.get("uid") or "",
         "cover": params.get("cover") or "",
         "avatar": params.get("avatar") or "",
-        "duration": 0,
+        "duration": int(params.get("duration") or 0),
         "plot": params.get("title") or "",
     }
-    try:
-        item["duration"] = int(params.get("duration") or 0)
-    except Exception:
-        item["duration"] = 0
     liked = toggle_like(PROFILE, item)
     notify("已喜欢" if liked else "已取消喜欢")
     xbmcplugin.endOfDirectory(handle(), succeeded=True)

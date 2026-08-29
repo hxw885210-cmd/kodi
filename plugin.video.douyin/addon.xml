@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.douyin" name="抖音" version="1.5.16" provider-name="xiaojiu885210-arch">
+<addon id="plugin.video.douyin" name="抖音" version="1.5.17" provider-name="xiaojiu885210-arch">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
@@ -16,7 +16,7 @@
     <license>MIT</license>
     <source>https://github.com/xiaojiu885210-arch/kodi</source>
     <website>https://github.com/xiaojiu885210-arch/kodi</website>
-    <news lang="zh_CN">1.5.16: 恢复 1.5.13 能搜到的请求方式；用户仍单独放在「用户」文件夹。</news>
+    <news lang="zh_CN">1.5.17: 回退到 1.5.13 能搜的逻辑。版本号抬高，才能覆盖后面坏掉的几版。</news>
     <assets>
       <icon>resources/media/icon.png</icon>
       <fanart>resources/media/fanart.png</fanart>

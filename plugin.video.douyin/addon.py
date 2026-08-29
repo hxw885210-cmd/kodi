@@ -71,17 +71,6 @@ def router():
             params.get("sid") or "",
         )
         return
-    if action == "search_users":
-        from browse import do_search_users
-
-        do_search_users(
-            params.get("q") or "",
-            params.get("sort") or "0",
-            params.get("pub") or "0",
-            params.get("off") or "0",
-            params.get("sid") or "",
-        )
-        return
     if action == "search_input":
         from browse import do_search_input
 
@@ -171,16 +160,6 @@ def router():
         from mine import show_author
 
         show_author(
-            params.get("sec_uid") or "",
-            params.get("uid") or "",
-            params.get("nickname") or "",
-            params.get("aweme_id") or "",
-        )
-        return
-    if action == "open_author":
-        from mine import open_author
-
-        open_author(
             params.get("sec_uid") or "",
             params.get("uid") or "",
             params.get("nickname") or "",

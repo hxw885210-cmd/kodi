@@ -517,7 +517,6 @@ class DouyinAPI:
             except DouyinError:
                 extra_users = []
             users = _merge_users(users, extra_users)
-            users = _merge_users(users, self._users_from_following(keyword))
 
         # 搜到用户就先展示卡片，不要立刻去拉每个人的主页，否则搜索后再进作者会被限流。
         if not videos and offset == 0 and users and not self.logged_in():
@@ -622,61 +621,59 @@ class DouyinAPI:
         login_err = None
         for path, channel, source in attempts:
             params = self._search_params(keyword, sort_type, publish_time, offset, search_id, channel, source)
-            for signed in (False, True):
-                try:
-                    data = self._web_json(
-                        path,
-                        params,
-                        allow_error=True,
-                        referer=self._search_referer(keyword, "video"),
-                        timeout=15,
-                        sign=signed,
-                    )
-                except DouyinError as exc:
-                    last = exc
+            try:
+                data = self._web_json(
+                    path,
+                    params,
+                    allow_error=True,
+                    referer=self._search_referer(keyword, "video"),
+                    timeout=15,
+                )
+            except DouyinError as exc:
+                last = exc
+                continue
+            if not isinstance(data, dict) or not data:
+                continue
+            code = data.get("status_code")
+            msg = str(data.get("status_msg") or "")
+            if code in (2483, 2154, 5, 8) or ("登录" in msg):
+                login_err = DouyinError(msg or "搜索需要先登录")
+                last = login_err
+                continue
+            if code not in (0, None):
+                last = DouyinError(msg or ("错误码 %s" % code))
+                continue
+            videos = []
+            for item in _search_awemes(data):
+                if not _is_search_video(item):
                     continue
-                if not isinstance(data, dict) or not data:
-                    continue
-                code = data.get("status_code")
-                msg = str(data.get("status_msg") or "")
-                if code in (2483, 2154, 5, 8) or ("登录" in msg):
-                    login_err = DouyinError(msg or "搜索需要先登录")
-                    last = login_err
-                    continue
-                if code not in (0, None):
-                    last = DouyinError(msg or ("错误码 %s" % code))
-                    continue
-                videos = []
-                for item in _search_awemes(data):
-                    if not _is_search_video(item):
-                        continue
-                    row = _safe_normalize(item)
-                    if row:
-                        videos.append(row)
-                users = _search_users(data)
-                lives = []
-                for room in _live_search_rooms(data):
-                    item = _normalize_live(room)
-                    if item:
-                        lives.append(item)
-                extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
-                next_sid = str(data.get("search_id") or extra.get("search_id") or extra.get("logid") or search_id or "")
-                cursor = data.get("cursor")
-                if cursor is None:
-                    cursor = extra.get("cursor")
-                try:
-                    next_offset = int(cursor)
-                except (TypeError, ValueError):
-                    next_offset = offset + max(len(videos), 1)
-                if next_offset <= offset and videos:
-                    next_offset = offset + max(len(videos), 10)
-                has_more = data.get("has_more")
-                if has_more is None:
-                    has_more = extra.get("has_more")
-                if has_more is None:
-                    has_more = len(videos) >= 8
-                if videos or users or lives:
-                    return videos, users, lives, bool(has_more), next_offset, next_sid, None
+                row = _safe_normalize(item)
+                if row:
+                    videos.append(row)
+            users = _search_users(data)
+            lives = []
+            for room in _live_search_rooms(data):
+                item = _normalize_live(room)
+                if item:
+                    lives.append(item)
+            extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+            next_sid = str(data.get("search_id") or extra.get("search_id") or extra.get("logid") or search_id or "")
+            cursor = data.get("cursor")
+            if cursor is None:
+                cursor = extra.get("cursor")
+            try:
+                next_offset = int(cursor)
+            except (TypeError, ValueError):
+                next_offset = offset + max(len(videos), 1)
+            if next_offset <= offset and videos:
+                next_offset = offset + max(len(videos), 10)
+            has_more = data.get("has_more")
+            if has_more is None:
+                has_more = extra.get("has_more")
+            if has_more is None:
+                has_more = len(videos) >= 8
+            if videos or users or lives:
+                return videos, users, lives, bool(has_more), next_offset, next_sid, None
         if login_err:
             return [], [], [], False, offset, search_id, login_err
         if last:
@@ -712,26 +709,22 @@ class DouyinAPI:
             ms_token = (self.cookies.get("msToken") or "").strip()
             if ms_token:
                 params["msToken"] = ms_token
-            found = []
-            for signed in (False, True):
-                try:
-                    data = self._web_json(
-                        path,
-                        params,
-                        allow_error=True,
-                        referer=self._search_referer(keyword, "user"),
-                        timeout=15,
-                        sign=signed,
-                    )
-                except DouyinError:
-                    continue
-                if not isinstance(data, dict):
-                    continue
-                if data.get("status_code") not in (0, None):
-                    continue
-                found = _search_users(data)
-                if found:
-                    break
+            try:
+                data = self._web_json(
+                    path,
+                    params,
+                    allow_error=True,
+                    referer=self._search_referer(keyword, "user"),
+                    timeout=15,
+                )
+            except DouyinError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            code = data.get("status_code")
+            if code not in (0, None):
+                continue
+            found = _search_users(data)
             if found:
                 users = _merge_users(users, found)
                 break
@@ -761,34 +754,6 @@ class DouyinAPI:
         if code not in (0, None):
             return []
         return _search_users(data)
-
-    def _users_from_following(self, keyword):
-        keyword = (keyword or "").strip()
-        if not keyword or not self.logged_in():
-            return []
-        needle = keyword.lower()
-        try:
-            rows, _more, _min_time, _offset = self.following_list_page()
-        except DouyinError:
-            rows = []
-        out = []
-        for row in rows or []:
-            nick = str((row or {}).get("nickname") or (row or {}).get("author") or "")
-            if not nick:
-                continue
-            if needle not in nick.lower() and nick.lower() not in needle:
-                continue
-            out.append(
-                _normalize_user(
-                    {
-                        "nickname": nick,
-                        "sec_uid": (row or {}).get("sec_uid") or "",
-                        "uid": (row or {}).get("uid") or "",
-                        "avatar_thumb": {"url_list": [(row or {}).get("avatar") or ""]},
-                    }
-                )
-            )
-        return [row for row in out if row and row.get("sec_uid")]
 
     def _videos_from_users(self, users):
         seen = set()
@@ -1017,10 +982,7 @@ class DouyinAPI:
                 item = None
         if not item:
             raise DouyinError("视频不存在或已删除")
-        row = _safe_normalize(item)
-        if not row:
-            raise DouyinError("视频解析失败")
-        return row
+        return _normalize(item)
 
     def from_share(self, text):
         aweme_id = self.resolve_aweme_id(text)
@@ -1210,27 +1172,14 @@ class DouyinAPI:
             headers["Cookie"] = cookie
         return headers
 
-    def _web_json(self, path, params, allow_error=False, referer=None, timeout=12, sign=False):
+    def _web_json(self, path, params, allow_error=False, referer=None, timeout=12):
         query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-        if sign:
-            query = self._sign_query(query)
         return self._request_json(
             WEB_ORIGIN + path + "?" + query,
             headers=self._headers("web", referer=referer),
             allow_error=allow_error,
             timeout=timeout,
         )
-
-    def _sign_query(self, query):
-        try:
-            import hashlib
-
-            hashlib.new("sm3", b"x")
-            from abogus import make_a_bogus
-
-            return query + "&a_bogus=" + urllib.parse.quote(make_a_bogus(query, WEB_UA), safe="")
-        except Exception:
-            return query
 
     def _get_json(self, path, params, allow_error=False):
         query = urllib.parse.urlencode(params)
