@@ -322,6 +322,7 @@ class DouyinAPI:
                         allow_error=True,
                         referer="%s/user/%s" % (WEB_ORIGIN, urllib.parse.quote(sec_uid)),
                         timeout=15,
+                        sign=True,
                     )
                 except DouyinError:
                     data = None
@@ -517,6 +518,7 @@ class DouyinAPI:
             except DouyinError:
                 extra_users = []
             users = _merge_users(users, extra_users)
+            users = _merge_users(users, self._users_from_following(keyword))
 
         # 搜到用户就先展示卡片，不要立刻去拉每个人的主页，否则搜索后再进作者会被限流。
         if not videos and offset == 0 and users and not self.logged_in():
@@ -628,6 +630,7 @@ class DouyinAPI:
                     allow_error=True,
                     referer=self._search_referer(keyword, "video"),
                     timeout=15,
+                    sign=True,
                 )
             except DouyinError as exc:
                 last = exc
@@ -716,6 +719,7 @@ class DouyinAPI:
                     allow_error=True,
                     referer=self._search_referer(keyword, "user"),
                     timeout=15,
+                    sign=True,
                 )
             except DouyinError:
                 continue
@@ -754,6 +758,34 @@ class DouyinAPI:
         if code not in (0, None):
             return []
         return _search_users(data)
+
+    def _users_from_following(self, keyword):
+        keyword = (keyword or "").strip()
+        if not keyword or not self.logged_in():
+            return []
+        needle = keyword.lower()
+        try:
+            rows, _more, _min_time, _offset = self.following_list_page()
+        except DouyinError:
+            rows = []
+        out = []
+        for row in rows or []:
+            nick = str((row or {}).get("nickname") or (row or {}).get("author") or "")
+            if not nick:
+                continue
+            if needle not in nick.lower() and nick.lower() not in needle:
+                continue
+            out.append(
+                _normalize_user(
+                    {
+                        "nickname": nick,
+                        "sec_uid": (row or {}).get("sec_uid") or "",
+                        "uid": (row or {}).get("uid") or "",
+                        "avatar_thumb": {"url_list": [(row or {}).get("avatar") or ""]},
+                    }
+                )
+            )
+        return [row for row in out if row and row.get("sec_uid")]
 
     def _videos_from_users(self, users):
         seen = set()
@@ -1172,8 +1204,15 @@ class DouyinAPI:
             headers["Cookie"] = cookie
         return headers
 
-    def _web_json(self, path, params, allow_error=False, referer=None, timeout=12):
+    def _web_json(self, path, params, allow_error=False, referer=None, timeout=12, sign=False):
         query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+        if sign:
+            try:
+                from abogus import make_a_bogus
+
+                query = query + "&a_bogus=" + urllib.parse.quote(make_a_bogus(query, WEB_UA), safe="")
+            except Exception:
+                pass
         return self._request_json(
             WEB_ORIGIN + path + "?" + query,
             headers=self._headers("web", referer=referer),
